@@ -337,6 +337,32 @@ Total messages: 10
 
 ---
 
+## Part 6: Final Project — Kết quả `check_production_ready.py`
+
+Chạy đầy đủ (có Docker) trong `06-lab-complete/` trên WSL2 `Ubuntu-22.04` (`os.name == 'posix'`):
+
+```text
+================================================================
+  📋 Checklist Deliverable
+     ✅ Dockerfile (multi-stage, < 500 MB)
+     ✅ docker-compose.yml (agent + redis)
+     ✅ .dockerignore
+     ✅ Health check endpoint (GET /health)
+     ✅ Readiness endpoint (GET /ready)
+     ✅ API Key authentication
+     ✅ Rate limiting
+     ✅ Cost guard
+     ✅ Config từ environment variables
+     ✅ Structured logging
+     ✅ Graceful shutdown
+     ✅ Public URL ready (Railway / Render config)
+----------------------------------------------------------------
+  Result: PASS 12/12
+================================================================
+```
+
+---
+
 ## AI Log (Cập nhật dần trong quá trình làm lab)
 
 1. **Setup môi trường (CP0) & Part 1 (CP1):**
@@ -355,3 +381,7 @@ Total messages: 10
    - **Hỏi gì:** Nhờ AI hướng dẫn chạy thử health/readiness/graceful shutdown và stack 3 instance agent + Redis + Nginx, sau đó tổng hợp kết quả vào `MISSION_ANSWERS.md`.
    - **Nhận gì:** Lệnh chạy stack với `-p k5-day14-scaling --scale agent=3` và kịch bản kiểm chứng stateless.
    - **Tự kiểm tra:** Tự bật stack 3 instance (`healthy`), chạy `python3 test_stateless.py` xác nhận 5 request đi qua cả 3 instance khác nhau nhưng vẫn bảo toàn đủ 10 messages trong Redis, sau đó dọn stack bằng `docker compose down`.
+5. **Part 6 — Final Project (CP5):**
+   - **Hỏi gì:** Nhờ AI hỗ trợ hoàn thiện các file `TODO` trong `06-lab-complete/` (`app/config.py`, `app/redis_client.py`, `app/auth.py`, `app/rate_limiter.py`, `app/cost_guard.py`, `app/main.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml`) và xử lý lỗi timeout khởi động `uvicorn --workers 2` trên WSL2.
+   - **Nhận gì:** Code đầy đủ 12 tiêu chí production-ready (image multi-stage 69 MB, Redis sliding-window rate limit & cost guard, JSON logging, lifespan graceful shutdown) và tối ưu `load_dotenv(".env")` tránh quét thư mục cha trên `/mnt/d/`.
+   - **Tự kiểm tra:** Tự chạy `python check_production_ready.py` bản đầy đủ có Docker trong WSL2 `Ubuntu-22.04` và đạt **`PASS 12/12`**.
