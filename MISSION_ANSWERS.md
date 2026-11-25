@@ -281,6 +281,62 @@ referrer-policy: strict-origin-when-cross-origin
 
 ---
 
+## Part 5: Scaling & Reliability
+
+### Exercise 5.1 & 5.2: Health Checks (`/health` vs `/ready`) và Graceful Shutdown (`05-scaling-reliability/develop/app.py`)
+
+- **Phân biệt Liveness (`/health`) và Readiness (`/ready`):**
+  - **`GET /health` (Liveness probe):** Hỏi *"process/container còn sống không?"*. Luôn trả `200 OK` miễn là tiến trình vẫn hoạt động bình thường (kể cả khi một dependency bên ngoài như Redis đang tạm mất kết nối). Nếu `/health` trả non-200 hoặc timeout, platform (Docker, Railway, Kubernetes) sẽ **restart container**.
+  - **`GET /ready` (Readiness probe):** Hỏi *"instance này đã sẵn sàng nhận traffic chưa?"*. Kiểm tra trạng thái khởi tạo (`_is_ready`) và kết nối tới các dependency quan trọng (như `redis.ping()`). Nếu chưa sẵn sàng hoặc đang shutdown, trả **`503 Service Unavailable`** để Load Balancer tạm thời **ngừng đẩy traffic mới** vào instance đó mà không cần kill/restart oan container.
+- **Graceful Shutdown (`SIGTERM`):**
+  - Khi orchestrator muốn dừng hoặc rolling-deploy container, nó gửi tín hiệu **`SIGTERM`** (khác với `SIGKILL` giết tiến trình ngay lập tức).
+  - Trong `develop/app.py`, `lifespan` chuyển `_is_ready = False` (để `/ready` trả `503`), chờ biến `_in_flight_requests` giảm về `0` (hoàn thành các request đang xử lý, tối đa `timeout_graceful_shutdown=30` giây) rồi mới thoát sạch với exit code `0`.
+
+---
+
+### Exercise 5.3–5.5: Stateless Design & Load Balancing (`05-scaling-reliability/production/`)
+
+- **Vì sao state trong RAM (in-memory) bị hỏng khi scale nhiều instance?**
+  - Khi chạy 3 instance agent phía sau Nginx Load Balancer, request 1 của user có thể rơi vào `instance-1` (lưu lịch sử hội thoại trong RAM của `instance-1`), nhưng request 2 lại được Nginx điều phối sang `instance-2` — nơi hoàn toàn không có dữ liệu của session đó. Ngoài ra, nếu container restart, toàn bộ dữ liệu trong RAM cũng mất sạch.
+  - **Giải pháp Stateless:** Đẩy toàn bộ state (session, conversation history, rate limit, cost guard) sang kho lưu trữ dùng chung bên ngoài là **Redis** (`save_session` / `load_session` bằng `SETEX` và `GET` trong `05-scaling-reliability/production/app.py:59-74`). Nhờ đó bất kỳ instance nào cũng phục vụ được mọi user mà không mất ngữ cảnh.
+
+**Kết quả thực tế khi chạy stack 3 instance (`docker compose -p k5-day14-scaling up -d --build --scale agent=3`):**
+
+```text
+NAME                       IMAGE                    COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+k5-day14-scaling-agent-1   k5-day14-scaling-agent   "python -m uvicorn a…"   agent     30 seconds ago   Up 19 seconds (healthy)   8000/tcp
+k5-day14-scaling-agent-2   k5-day14-scaling-agent   "python -m uvicorn a…"   agent     30 seconds ago   Up 18 seconds (healthy)   8000/tcp
+k5-day14-scaling-agent-3   k5-day14-scaling-agent   "python -m uvicorn a…"   agent     30 seconds ago   Up 18 seconds (healthy)   8000/tcp
+k5-day14-scaling-nginx-1   nginx:alpine             "/docker-entrypoint.…"   nginx     30 seconds ago   Up 18 seconds             0.0.0.0:8080->80/tcp, [::]:8080->80/tcp
+k5-day14-scaling-redis-1   redis:7-alpine           "docker-entrypoint.s…"   redis     31 seconds ago   Up 29 seconds (healthy)   6379/tcp
+```
+
+**Kết quả chạy `python3 test_stateless.py`:**
+
+```text
+Session ID: e954c80c-05a3-4f79-9243-2d8c8b69755c
+
+Request 1: [instance-ffb11c]  Q: What is Docker?
+Request 2: [instance-d657aa]  Q: Why do we need containers?
+Request 3: [instance-7f4ef8]  Q: What is Kubernetes?
+Request 4: [instance-ffb11c]  Q: How does load balancing work?
+Request 5: [instance-d657aa]  Q: What is Redis used for?
+
+Total requests: 5
+Instances used: {'instance-ffb11c', 'instance-d657aa', 'instance-7f4ef8'}
+✅ All requests served despite different instances!
+
+--- Conversation History ---
+Total messages: 10
+✅ Session history preserved across all instances via Redis!
+```
+
+**Giải thích kết quả:**
+- Nginx phân tải đều 5 request liên tiếp của cùng 1 `session_id` (`e954c80c-05a3-4f79-9243-2d8c8b69755c`) qua cả **3 instance khác nhau** (`instance-ffb11c`, `instance-d657aa`, `instance-7f4ef8`) theo cơ chế round-robin.
+- Khi gọi `GET /chat/{session_id}/history`, toàn bộ **10 messages** (5 câu hỏi `user` + 5 câu trả lời `assistant`) vẫn đầy đủ và đúng thứ tự, chứng minh hệ thống **stateless** hoạt động chính xác nhờ chia sẻ trạng thái qua **Redis**.
+
+---
+
 ## AI Log (Cập nhật dần trong quá trình làm lab)
 
 1. **Setup môi trường (CP0) & Part 1 (CP1):**
@@ -295,3 +351,7 @@ referrer-policy: strict-origin-when-cross-origin
    - **Hỏi gì:** Nhờ AI hướng dẫn các bước chạy thử bản `develop` (API Key) và `production` (JWT + Rate Limit), xử lý lỗi `python` vs `python3` khi trích xuất JWT token, và tổng hợp ghi vào `MISSION_ANSWERS.md`.
    - **Nhận gì:** Bộ lệnh `curl -i` kiểm thử cho 401/403/200/429 và giải thích thuật toán Sliding Window + thiết kế Cost Guard với Redis.
    - **Tự kiểm tra:** Tự chạy server và toàn bộ lệnh `curl -i` trên 2 terminal WSL, xác nhận thực tế 401/403/200 ở Exercise 4.1, 200 OK ở Exercise 4.2, và đếm ngược `requests_remaining` từ 9 về 0 rồi trả `429 Too Many Requests` (`retry-after: 59`) ở Request 11.
+4. **Part 5 — Scaling & Reliability (CP4):**
+   - **Hỏi gì:** Nhờ AI hướng dẫn chạy thử health/readiness/graceful shutdown và stack 3 instance agent + Redis + Nginx, sau đó tổng hợp kết quả vào `MISSION_ANSWERS.md`.
+   - **Nhận gì:** Lệnh chạy stack với `-p k5-day14-scaling --scale agent=3` và kịch bản kiểm chứng stateless.
+   - **Tự kiểm tra:** Tự bật stack 3 instance (`healthy`), chạy `python3 test_stateless.py` xác nhận 5 request đi qua cả 3 instance khác nhau nhưng vẫn bảo toàn đủ 10 messages trong Redis, sau đó dọn stack bằng `docker compose down`.
