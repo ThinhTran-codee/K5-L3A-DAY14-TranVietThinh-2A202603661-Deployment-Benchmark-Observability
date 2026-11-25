@@ -171,6 +171,37 @@ Content-Type: application/json
 
 ---
 
+## Part 3: Cloud Deployment
+
+### Exercise 3.1: Deploy agent Part 6 lên Railway
+- **Public URL:** `https://k5-l3a-day14-tranvietthinh-2a202603661-deploymen-production.up.railway.app`
+- **Cấu hình triển khai:** Deploy trực tiếp thư mục `06-lab-complete/` bằng `Dockerfile` multi-stage + `railway.toml`, kết nối thêm service managed **Redis** trong cùng project qua biến tham chiếu `REDIS_URL=${{Redis.REDIS_URL}}`, đặt `AGENT_API_KEY` trong Railway Variables (không ghi vào code), và cấu hình Public Networking port khớp với `PORT` do Railway cấp (`8080`).
+- **Tự kiểm tra 4 lệnh CP6:**
+  - `GET /health` → `200`
+  - `GET /ready` → `200` (xác nhận kết nối Redis thành công)
+  - `POST /ask` (không có `X-API-Key`) → `401`
+  - `POST /ask` (có `X-API-Key`) → `200`
+- **Screenshots:** `screenshots/dashboard.png`, `screenshots/running.png`, `screenshots/test.png` (chi tiết xem [DEPLOYMENT.md](DEPLOYMENT.md)).
+
+### Exercise 3.2: So sánh `railway.toml` vs `render.yaml`
+
+| Tiêu chí | `railway.toml` (Railway) | `render.yaml` (Render Blueprint) |
+| :--- | :--- | :--- |
+| **Định dạng & phạm vi** | TOML, mô tả cấu hình build/deploy cho **1 service** cụ thể (project & database thường tạo riêng trên dashboard/CLI rồi nối bằng Variable Reference `${{Redis.REDIS_URL}}`). | YAML (Infrastructure-as-Code Blueprint), có thể khai báo **cả danh sách nhiều service** (`services:`, `databases:`) trong cùng 1 file. |
+| **Build & Healthcheck** | `[build] builder = "DOCKERFILE"`, `[deploy] healthcheckPath = "/health"`, `restartPolicyType = "ON_FAILURE"`. | `type: web`, `runtime: docker`, `dockerfilePath: ./Dockerfile`, `healthCheckPath: /health`. |
+| **Quản lý biến môi trường & Secret** | Biến thường được quản lý tách biệt trên Dashboard / `railway variables set` thay vì khai báo trong `railway.toml`. | Khai báo trực tiếp danh sách `envVars` trong `render.yaml`; secret dùng `generateValue: true` (Render tự sinh) hoặc `sync: false` (nhập tay trên dashboard, không lộ vào Git). |
+| **Vì sao khác nhau?** | Railway ưu tiên trải nghiệm nhanh, linh hoạt theo từng service gắn liền giao diện Canvas/CLI. | Render Blueprint hướng tới khai báo trọn bộ hạ tầng lặp lại được (reproducible IaC) từ một file duy nhất trong repo Git. |
+
+### Exercise 3.3: GCP Cloud Run CI/CD Pipeline (`03-cloud-deployment/production-cloud-run/`)
+
+Đọc `cloudbuild.yaml` và `service.yaml`, pipeline CI/CD tự động khi push lên nhánh `main` đi qua **4 bước tuần tự**:
+1. **`test` (`python:3.11-slim`):** Cài `requirements.txt` + `pytest` và chạy toàn bộ bộ kiểm thử `pytest tests/ -v`; nếu fail sẽ chặn deploy ngay.
+2. **`build` (`gcr.io/cloud-builders/docker`):** Build Docker image có tận dụng `--cache-from` từ bản `latest`, gắn 2 tag là `$COMMIT_SHA` (để truy vết/rollback) và `latest`.
+3. **`push`:** Đẩy các tag image lên Google Container Registry (`gcr.io/$PROJECT_ID/ai-agent`).
+4. **`deploy` (`gcloud run deploy`):** Triển khai image `$COMMIT_SHA` lên Cloud Run (`asia-southeast1`), cấu hình autoscaling `min-instances=1` (tránh cold start) đến `max-instances=10`, giới hạn tài nguyên (`1 CPU`, `512Mi RAM`, `concurrency=80`, `timeout=60s`), đọc secret từ **Secret Manager** (`--set-secrets` / `secretKeyRef`) và tách riêng `livenessProbe` (`/health`) với `startupProbe` (`/ready`) như định nghĩa IaC trong `service.yaml`.
+
+---
+
 ## Part 4: API Security
 
 ### Exercise 4.1: API Key Authentication (`04-api-gateway/develop/app.py`)
@@ -385,3 +416,7 @@ Chạy đầy đủ (có Docker) trong `06-lab-complete/` trên WSL2 `Ubuntu-22.
    - **Hỏi gì:** Nhờ AI hỗ trợ hoàn thiện các file `TODO` trong `06-lab-complete/` (`app/config.py`, `app/redis_client.py`, `app/auth.py`, `app/rate_limiter.py`, `app/cost_guard.py`, `app/main.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `railway.toml`, `render.yaml`) và xử lý lỗi timeout khởi động `uvicorn --workers 2` trên WSL2.
    - **Nhận gì:** Code đầy đủ 12 tiêu chí production-ready (image multi-stage 69 MB, Redis sliding-window rate limit & cost guard, JSON logging, lifespan graceful shutdown) và tối ưu `load_dotenv(".env")` tránh quét thư mục cha trên `/mnt/d/`.
    - **Tự kiểm tra:** Tự chạy `python check_production_ready.py` bản đầy đủ có Docker trong WSL2 `Ubuntu-22.04` và đạt **`PASS 12/12`**.
+6. **Part 3 — Cloud Deployment (CP6):**
+   - **Hỏi gì:** Nhờ AI hướng dẫn từng bước deploy `06-lab-complete/` kèm Redis lên Railway, xử lý lỗi `502` do lệch cổng `8000` vs `8080`, và tổng hợp `DEPLOYMENT.md` + so sánh `railway.toml`/`render.yaml` + phân tích Cloud Run pipeline (`cloudbuild.yaml`, `service.yaml`).
+   - **Nhận gì:** Hướng dẫn cấu hình Root Directory `06-lab-complete`, Variable Reference `${{Redis.REDIS_URL}}`, sửa Public Networking port về `8080`, và hoàn thiện tài liệu nộp CP6.
+   - **Tự kiểm tra:** Tự thao tác deploy trên Railway Dashboard, kiểm chứng cả 2 service Agent + Redis đều Online và chạy 4 lệnh `curl` tới Public URL.
