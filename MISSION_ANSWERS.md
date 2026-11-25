@@ -420,3 +420,7 @@ Chạy đầy đủ (có Docker) trong `06-lab-complete/` trên WSL2 `Ubuntu-22.
    - **Hỏi gì:** Nhờ AI hướng dẫn từng bước deploy `06-lab-complete/` kèm Redis lên Railway, xử lý lỗi `502` do lệch cổng `8000` vs `8080`, và tổng hợp `DEPLOYMENT.md` + so sánh `railway.toml`/`render.yaml` + phân tích Cloud Run pipeline (`cloudbuild.yaml`, `service.yaml`).
    - **Nhận gì:** Hướng dẫn cấu hình Root Directory `06-lab-complete`, Variable Reference `${{Redis.REDIS_URL}}`, sửa Public Networking port về `8080`, và hoàn thiện tài liệu nộp CP6.
    - **Tự kiểm tra:** Tự thao tác deploy trên Railway Dashboard, kiểm chứng cả 2 service Agent + Redis đều Online và chạy 4 lệnh `curl` tới Public URL.
+7. **Part 7 Bước 1 — Benchmark local & Eval (CP7):**
+   - **Hỏi gì:** Nhờ AI hướng dẫn lệnh chạy load test (4 mức concurrency + 3 mức `MOCK_SLOW_RATE`) và eval v1 vs v2, đọc file JSON kết quả để chỉ ra các câu bị fail trong `eval_v2.json` và bổ sung `KNOWLEDGE_BASE`.
+   - **Nhận gì:** Phát hiện `load_v2_slow_0.1.json` lần đầu chưa restart server, bổ sung 2 entry `security-02` và `scaling-03` vào `KNOWLEDGE_BASE` trong `develop/utils/mock_llm.py` và `production/utils/mock_llm.py`, và điền số liệu khớp JSON vào Phần 1–3 của `BENCHMARK_REPORT.md`.
+   - **Tự kiểm tra:** Tự chạy lại toàn bộ lệnh `load_test.py` và `eval/run_eval.py`, xác nhận `load_v2_slow_0.1.json` có `p95 = 1687.3 ms`, `p99 = 1716.4 ms`, và `eval_v2_fixed.json` đạt `23/23 (100%)` với `Quality gate ✅ PASS` (0 regression).
